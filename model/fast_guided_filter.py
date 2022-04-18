@@ -39,6 +39,34 @@ class FastGuidedFilterRefiner(nn.Module):
         else:
             return self.forward_single_frame(fine_src, base_src, base_fgr, base_pha)
 
+class FastGuidedFilterMaskRefiner(nn.Module):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.guilded_filter = FastGuidedFilter(1)
+    
+    def forward_single_frame(self, fine_src, base_src, base_pha):
+        fine_src_gray = fine_src.mean(1, keepdim=True)
+        base_src_gray = base_src.mean(1, keepdim=True)
+        
+        pha = self.guilded_filter(base_src_gray, base_pha, fine_src_gray)
+        
+        return pha
+    
+    def forward_time_series(self, fine_src, base_src, base_pha):
+        B, T = fine_src.shape[:2]
+        pha = self.forward_single_frame(
+            fine_src.flatten(0, 1),
+            base_src.flatten(0, 1),
+            base_pha.flatten(0, 1))
+        pha = pha.unflatten(0, (B, T))
+        return pha
+    
+    def forward(self, fine_src, base_src, base_pha, unused_hid):
+        if fine_src.ndim == 5:
+            return self.forward_time_series(fine_src, base_src, base_pha)
+        else:
+            return self.forward_single_frame(fine_src, base_src, base_pha)
+
 
 class FastGuidedFilter(nn.Module):
     def __init__(self, r: int, eps: float = 1e-5):

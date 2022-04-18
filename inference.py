@@ -15,6 +15,7 @@ python inference.py \
 import torch
 import os
 from torch.utils.data import DataLoader
+from torch.nn import functional as F
 from torchvision import transforms
 from typing import Optional, Tuple
 from tqdm.auto import tqdm
@@ -34,7 +35,8 @@ def convert_video(model,
                   num_workers: int = 0,
                   progress: bool = True,
                   device: Optional[str] = None,
-                  dtype: Optional[torch.dtype] = None):
+                  dtype: Optional[torch.dtype] = None,
+                  segmentation: Optional[bool] = False):
     
     """
     Args:
@@ -62,7 +64,7 @@ def convert_video(model,
     assert num_workers >= 0, 'Number of workers must be >= 0'
     
     # Initialize transform
-    if input_resize is not None:
+    if input_resize is not None and not segmentation:
         transform = transforms.Compose([
             transforms.Resize(input_resize[::-1]),
             transforms.ToTensor()
@@ -114,6 +116,17 @@ def convert_video(model,
     if (output_composition is not None) and (output_type == 'video'):
         bgr = torch.tensor([120, 255, 155], device=device, dtype=dtype).div(255).view(1, 1, 3, 1, 1)
     
+    def _interpolate(x: torch.Tensor, size):
+        if x.ndim == 5:
+            B, T = x.shape[:2]
+            x = F.interpolate(x.flatten(0, 1), size=size,
+                mode='bilinear', align_corners=False, recompute_scale_factor=False)
+            x = x.unflatten(0, (B, T))
+        else:
+            x = F.interpolate(x, size=size,
+                mode='bilinear', align_corners=False, recompute_scale_factor=False)
+        return x
+
     try:
         with torch.no_grad():
             bar = tqdm(total=len(source), disable=not progress, dynamic_ncols=True)
@@ -124,7 +137,14 @@ def convert_video(model,
                     downsample_ratio = auto_downsample_ratio(*src.shape[2:])
 
                 src = src.to(device, dtype, non_blocking=True).unsqueeze(0) # [B, T, C, H, W]
-                fgr, pha, *rec = model(src, *rec, downsample_ratio)
+                if segmentation:
+                    src_resize = _interpolate(src, input_resize[::-1])
+                    pha, *rec = model(src_resize, *rec, segmentation_pass=True)
+                    pha = pha.sigmoid()
+                    pha = _interpolate(pha, src.shape[3:])
+                    fgr = src * pha
+                else:
+                    fgr, pha, *rec = model(src, *rec, downsample_ratio)
 
                 if output_foreground is not None:
                     writer_fgr.write(fgr[0])
@@ -150,11 +170,11 @@ def convert_video(model,
             writer_fgr.close()
 
 
-def auto_downsample_ratio(h, w):
+def auto_downsample_ratio(h, w, lres=512):
     """
     Automatically find a downsample ratio so that the largest side of the resolution be 512px.
     """
-    return min(512 / max(h, w), 1)
+    return min(lres / max(h, w), 1)
 
 
 class Converter:

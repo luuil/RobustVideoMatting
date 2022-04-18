@@ -9,11 +9,9 @@ from .resnet import ResNet50Encoder
 from .lraspp import LRASPP
 from .decoder import RecurrentDecoder, Projection
 from .fast_guided_filter import FastGuidedFilterRefiner
-from .fast_guided_filter import FastGuidedFilterMaskRefiner
 from .deep_guided_filter import DeepGuidedFilterRefiner
-from .deep_guided_filter import DeepGuidedFilterMaskRefiner
 
-class MattingNetwork(nn.Module):
+class MattingNetworkRVM(nn.Module):
     def __init__(self,
                  variant: str = 'mobilenetv3',
                  refiner: str = 'deep_guided_filter',
@@ -36,10 +34,8 @@ class MattingNetwork(nn.Module):
 
         if refiner == 'deep_guided_filter':
             self.refiner = DeepGuidedFilterRefiner()
-            self.refiner_mask = DeepGuidedFilterMaskRefiner()
         else:
             self.refiner = FastGuidedFilterRefiner()
-            self.refiner_mask = FastGuidedFilterMaskRefiner()
         
     def forward(self,
                 src: Tensor,
@@ -48,7 +44,7 @@ class MattingNetwork(nn.Module):
                 r3: Optional[Tensor] = None,
                 r4: Optional[Tensor] = None,
                 downsample_ratio: float = 1,
-                segmentation_pass: bool = True):
+                segmentation_pass: bool = False):
         
         if downsample_ratio != 1:
             src_sm = self._interpolate(src, scale_factor=downsample_ratio)
@@ -69,8 +65,6 @@ class MattingNetwork(nn.Module):
             return [fgr, pha, *rec]
         else:
             seg = self.project_seg(hid)
-            if downsample_ratio != 1:
-                seg = self.refiner_mask(src, src_sm, seg, hid)
             return [seg, *rec]
 
     def _interpolate(self, x: Tensor, scale_factor: float):

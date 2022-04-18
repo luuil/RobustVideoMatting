@@ -24,6 +24,13 @@ from tqdm import tqdm
 from tqdm.contrib.concurrent import process_map
 from torchvision import transforms
 from torchvision.transforms import functional as F
+import sys
+
+sys.argv += r'''--imagematte-dir C:\Users\luuil\Desktop\matte
+                --background-dir C:\Users\luuil\Desktop\huyabg
+                --resolution 512
+                --out-dir C:\Users\luuil\Desktop\mymatte512V2
+                --random-seed 14'''.split()
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--imagematte-dir', type=str, required=True)
@@ -43,6 +50,7 @@ background_filenames = os.listdir(args.background_dir)
 random.shuffle(imagematte_filenames)
 random.shuffle(background_filenames)
 
+args.out_dir = os.path.join(args.out_dir, f'seed{args.random_seed}')
 
 def lerp(a, b, percentage):
     return a * (1 - percentage) + b * percentage
@@ -74,6 +82,7 @@ def process(i):
     background_filename = background_filenames[i % len(background_filenames)]
     
     out_path = os.path.join(args.out_dir, str(i).zfill(4))
+    if os.path.exists(out_path): return
     os.makedirs(os.path.join(out_path, 'fgr'), exist_ok=True)
     os.makedirs(os.path.join(out_path, 'pha'), exist_ok=True)
     os.makedirs(os.path.join(out_path, 'com'), exist_ok=True)
@@ -134,8 +143,8 @@ def process(i):
         
         if t == 0:
             bgr.save(os.path.join(out_path, 'bgr', str(t).zfill(4) + args.extension))
-        else:
-            os.symlink(str(0).zfill(4) + args.extension, os.path.join(out_path, 'bgr', str(t).zfill(4) + args.extension))
+        # else:
+        #     os.symlink(str(0).zfill(4) + args.extension, os.path.join(out_path, 'bgr', str(t).zfill(4) + args.extension))
         
         pha = np.asarray(pha).astype(float)[:, :, None] / 255
         com = Image.fromarray(np.uint8(np.asarray(fgr) * pha + np.asarray(bgr) * (1 - pha)))
@@ -143,4 +152,4 @@ def process(i):
 
 
 if __name__ == '__main__':
-    r = process_map(process, range(args.num_samples), max_workers=32)
+    r = process_map(process, range(args.num_samples), max_workers=4)
